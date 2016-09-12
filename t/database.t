@@ -126,6 +126,11 @@ eval { $db->dollar_only->query('select ?::int as test', 23) };
 like $@, qr/Statement has no placeholders to bind/, 'right error';
 is $db->query('select ?::int as test', 23)->hash->{test}, 23, 'right result';
 
+# Named paramters
+$db = $pg->db;
+is $db->query('select :first::integer as first, :second::integer as second', {first => "1", second => "2"})->hash->{'first'}, 1,
+  'right result from named parameter';
+
 # JSON
 $db = $pg->db;
 is_deeply $db->query('select ?::json as foo', {json => {bar => 'baz'}})

@@ -76,17 +76,17 @@ sub query {
   $attrs{pg_placeholder_dollaronly} = 1        if delete $self->{dollar_only};
   $attrs{pg_async}                  = PG_ASYNC if $cb;
   my $sth = $self->dbh->prepare_cached($query, \%attrs, 3);
-  local $sth->{HandleError} = sub { $_[0] = shortmess $_[0]; 0 };
+  my $previous_handler = $sth->{HandleError};
+  local $sth->{HandleError} = sub { 
+      $_[0] = shortmess $_[0]; 
+      return 1 if $previous_handler and &$previous_handler(@_);
+      0
+  };
 
-  for (my $i = 0; $#_ >= $i; $i++) {
-    my ($param, $attrs) = ($_[$i], {});
-    if (ref $param eq 'HASH') {
-      if (exists $param->{json}) { $param = to_json $param->{json} }
-      elsif (exists $param->{type} && exists $param->{value}) {
-        ($attrs->{pg_type}, $param) = @{$param}{qw(type value)};
-      }
-    }
-    $sth->bind_param($i + 1, $param, $attrs);
+  if($self->_has_named_parameters(@_)){
+    $self->_bind_named_parameters($sth, $_[0]);
+  }else{
+    $self->_bind_positional_parameters($sth, @_);
   }
   $sth->execute;
 
@@ -99,6 +99,46 @@ sub query {
   # Non-blocking
   $self->{waiting} = {cb => $cb, sth => $sth};
   $self->_watch;
+}
+
+sub _has_named_parameters {
+  my ($self, $params) = @_;
+  if(ref $params eq 'HASH' and
+    not exists $params->{'type'} and
+    not exists $params->{'value'} and
+    not exists $params->{'json'}){
+    return 1;
+  }else{
+    return 0;
+  }
+}
+
+sub _bind_named_parameters {
+  my ($self, $sth, $params) = @_;
+  my %param_h = %{ $params };
+  foreach ( keys %param_h ) {
+    $sth->bind_param(':'.$_, $param_h{$_});
+  }
+  # bind default undef values
+  my $bounds = $sth->{pg_bound};
+  foreach ( keys %{ $bounds } ) {
+    $sth->bind_param($_, undef ) if $bounds->{$_} == 0;
+  }
+}
+
+sub _bind_positional_parameters {
+  my ($self, $sth) = (shift, shift);
+
+  for (my $i = 0; $#_ >= $i; $i++) {
+    my ($param, $attrs) = ($_[$i], {});
+    if (ref $param eq 'HASH') {
+      if (exists $param->{json}) { $param = to_json $param->{json} }
+      elsif (exists $param->{type} && exists $param->{value}) {
+        ($attrs->{pg_type}, $param) = @{$param}{qw(type value)};
+      }
+    }
+    $sth->bind_param($i + 1, $param, $attrs);
+  }
 }
 
 sub tables {
