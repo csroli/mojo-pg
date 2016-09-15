@@ -116,13 +116,10 @@ sub _has_named_parameters {
 sub _bind_named_parameters {
   my ($self, $sth, $params) = @_;
   my %param_h = %{ $params };
-  foreach ( keys %param_h ) {
-    $sth->bind_param(':'.$_, $param_h{$_});
-  }
   # bind default undef values
   my $bounds = $sth->{pg_bound};
   foreach ( keys %{ $bounds } ) {
-    $sth->bind_param($_, undef ) if $bounds->{$_} == 0;
+    $sth->bind_param($_, $param_h{substr($_,1)} );
   }
 }
 
